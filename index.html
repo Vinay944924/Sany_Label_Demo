@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Thread — one spec, every rendering</title>
+<style>
+  :root{
+    --panel:#1E2422; --panel-2:#28302D; --line:#39423E;
+    --paper:#fff; --ink:#14181A; --muted:#7C8683; --muted-dark:#5D6764;
+    --accent:#EE7623; --danger:#C0261A; --warn:#B8860B; --ok:#2E7D4F; --bg:#E4E6E2;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);font-family:var(--sans);color:var(--ink);line-height:1.45;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1280px;margin:0 auto;padding:24px 20px 60px}
+
+  .mast{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;
+        border-bottom:2px solid var(--ink);padding-bottom:14px}
+  .mast h1{font-size:25px;line-height:1.15;margin:0;letter-spacing:-.02em;font-weight:700;max-width:700px}
+  .mast p{margin:6px 0 0;font-size:13.5px;color:var(--muted-dark);max-width:700px}
+  .stamp{font-family:var(--mono);font-size:11px;color:var(--muted-dark);text-align:right;line-height:1.6}
+  .stamp b{color:var(--ink);font-weight:600}
+
+  .status{margin:18px 0 20px;border-left:5px solid var(--ok);background:#fff;padding:12px 16px;display:flex;gap:12px}
+  .status.bad{border-left-color:var(--danger);background:#FDF2F1}
+  .status .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);margin-top:7px;flex:0 0 auto}
+  .status.bad .dot{background:var(--danger)}
+  .status h2{margin:0;font-size:14.5px;font-weight:700}
+  .status.bad h2{color:var(--danger)}
+  .status p{margin:3px 0 0;font-size:13px;color:var(--muted-dark)}
+  .status.bad p{color:#7A2018}
+
+  .grid{display:grid;grid-template-columns:288px 1fr;gap:18px;align-items:start}
+  @media(max-width:920px){.grid{grid-template-columns:1fr}}
+
+  .spec{background:var(--panel);color:#E6EAE8;padding:18px;border-radius:2px;position:sticky;top:18px}
+  @media(max-width:920px){.spec{position:static}}
+  .spec .hd{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:12px}
+  .spec .hd span:first-child{font-size:13.5px;font-weight:700}
+  .spec .hd span:last-child{font-family:var(--mono);font-size:11px;color:var(--accent)}
+  .spec h3{font-size:11px;font-weight:600;color:var(--muted);margin:15px 0 7px}
+  .spec h3:first-of-type{margin-top:0}
+
+  .picks{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+  .pick{background:var(--panel-2);border:1px solid var(--line);border-radius:2px;padding:6px 7px;cursor:pointer;text-align:left}
+  .pick:hover{border-color:var(--accent)}
+  .pick.on{border-color:var(--accent);background:#313935}
+  .pick .pn{font-size:11.5px;font-weight:700;display:flex;align-items:center;gap:5px;color:#E6EAE8}
+  .pick .sw{width:8px;height:8px;border-radius:1px;flex:0 0 auto}
+  .pick .pa{font-size:9px;color:var(--muted);margin-top:1px}
+
+  .vals{font-family:var(--mono);font-size:11px}
+  .vals div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--line)}
+  .vals div:last-child{border-bottom:0}
+  .vals span:first-child{color:var(--muted)}
+
+  .gap{margin-top:6px;background:#3A2F16;border-left:3px solid var(--warn);padding:7px 9px;font-size:10.5px;color:#E8D9A8;line-height:1.4}
+  .tog{display:flex;gap:9px;align-items:flex-start;cursor:pointer;margin-top:10px}
+  .tog input{width:14px;height:14px;margin-top:2px;cursor:pointer;flex:0 0 auto}
+  .tog .t1{font-size:12px;font-weight:600;color:#E6EAE8}
+  .tog .t2{font-size:10.5px;color:var(--muted);margin-top:2px;line-height:1.35}
+
+  .outs{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px}
+  .out{background:var(--paper);padding:15px;border-radius:2px;box-shadow:0 1px 0 rgba(0,0,0,.14)}
+  .out.detached{outline:2px solid var(--danger);outline-offset:-2px}
+  .oh{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid #D8DAD6;padding-bottom:7px;margin-bottom:11px}
+  .oh b{font-size:12.5px;font-weight:700}
+  .oh em{font-family:var(--mono);font-size:10px;font-style:normal;color:var(--muted-dark)}
+  .oh em.stale{color:var(--danger);font-weight:600}
+
+  /* EU panel — as printed today */
+  .eu{border:1px solid #999;font-size:10px;line-height:1.3}
+  .eu table{width:100%;border-collapse:collapse}
+  .eu th,.eu td{padding:2px 5px;border-bottom:1px solid #DDD}
+  .eu thead th{font-size:9px;font-weight:700;text-align:right}
+  .eu thead th:first-child{text-align:left}
+  .eu td:first-child{text-align:left}
+  .eu td{text-align:right;font-variant-numeric:tabular-nums}
+  .eu tr.hi td{font-weight:700}
+  .eu td.ind{padding-left:12px;color:#444}
+
+  /* US FDA panel */
+  .nf{border:1px solid #000;padding:5px 7px;font-size:11.5px;line-height:1.25}
+  .nf .ttl{font-size:23px;font-weight:800;letter-spacing:-.035em;line-height:1;margin:1px 0 2px}
+  .nf .sv{display:flex;justify-content:space-between;font-size:11px}
+  .nf .r7{border-top:7px solid #000;margin:3px 0}
+  .nf .r4{border-top:4px solid #000;margin:3px 0}
+  .nf .r1{border-top:1px solid #000;margin:2px 0}
+  .nf .cal{display:flex;justify-content:space-between;align-items:flex-end}
+  .nf .cal span:first-child{font-size:12.5px;font-weight:800}
+  .nf .cal span:last-child{font-size:23px;font-weight:800;line-height:.95}
+  .nf .dvh{text-align:right;font-size:10px;font-weight:700}
+  .nf .row{display:flex;justify-content:space-between;font-size:11px;padding:1px 0}
+  .nf .row.i{padding-left:11px}
+  .nf .row.ii{padding-left:22px}
+  .nf .row.miss{background:#FFF6DC;color:#8A6A00;font-style:italic}
+  .nf .fn{font-size:8.5px;line-height:1.3;color:#333;margin-top:3px}
+
+  .allergen{margin-top:10px;border:1.5px solid var(--ink);padding:7px 9px;font-size:11.5px}
+  .allergen b{text-transform:uppercase;letter-spacing:.02em}
+
+  .pname{font-size:15px;font-weight:700;line-height:1.25;margin:0 0 2px}
+  .price{font-size:13.5px;margin:0 0 9px;color:var(--muted-dark)}
+  .badges{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+  .badge{font-size:10.5px;padding:3px 8px;border-radius:99px;background:var(--ink);color:#fff}
+  .badge.wrong{background:var(--danger)}
+  .badge.blocked{background:#fff;color:#8A6A00;border:1px dashed var(--warn)}
+  .blurb{font-size:11.5px;color:#333;margin:0 0 10px}
+  .aline{font-size:11.5px;padding:7px 9px;background:#F2F3F1;border-radius:2px}
+  .aline.bad{background:#FBE9E7;color:#7A2018;font-weight:600}
+  .src{margin-top:9px;font-family:var(--mono);font-size:9.5px;color:var(--muted-dark)}
+  .src.bad{color:var(--danger)}
+
+  .stage1{margin-top:20px;background:#fff;border-left:5px solid var(--accent);padding:14px 16px}
+  .stage1 h3{margin:0 0 5px;font-size:13.5px}
+  .stage1 p{margin:0 0 7px;font-size:12.5px;color:#333}
+  .stage1 p:last-child{margin-bottom:0}
+  .foot{margin-top:22px;border-top:1px solid #C9CCC8;padding-top:14px;font-size:12px;color:var(--muted-dark);max-width:820px}
+  .foot p{margin:0 0 7px}
+  .foot b{color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="mast">
+    <div>
+      <h1>One spec. Every rendering. Nobody retypes a label.</h1>
+      <p>Real published values from the six Beyond Resilience bars. Pick a product on the left and the EU panel, the US panel and the shop listing are all generated from the same versioned object — including the three fields the US panel needs and the current spec does not hold.</p>
+    </div>
+    <div class="stamp">SANY assessment · stage two<br>submitted by <b>Vinay Krishna Murthy</b><br>vinaykr9449@gmail.com · +1 857 693 9057<br>item <b id="sku">BR-GLOW-50</b> · spec <b id="ver">v1</b></div>
+  </div>
+
+  <div class="status" id="status">
+    <div class="dot"></div>
+    <div><h2 id="stTitle">Thread intact</h2><p id="stBody">All three renderings are reading the same spec version.</p></div>
+  </div>
+
+  <div class="grid">
+    <div class="spec">
+      <div class="hd"><span>Gensis — item spec</span><span id="verChip">v1</span></div>
+      <h3>Product</h3>
+      <div class="picks" id="picks"></div>
+
+      <h3>Declared values, per 100 g</h3>
+      <div class="vals" id="vals"></div>
+
+      <div class="gap" id="gapNote"></div>
+
+      <label class="tog">
+        <input type="checkbox" id="reform">
+        <span>
+          <span class="t1">Apply pending line extension</span>
+          <span class="t2">Pistachio kadayif coating — the Dubai crossover. Adds tree nut and wheat, moves fat and protein.</span>
+        </span>
+      </label>
+      <label class="tog">
+        <input type="checkbox" id="detach">
+        <span>
+          <span class="t1">Shop copy maintained by hand</span>
+          <span class="t2">How it works today: the website is edited separately from the spec. Turn this on, then apply the line extension.</span>
+        </span>
+      </label>
+    </div>
+
+    <div class="outs">
+      <div class="out" id="cardEU">
+        <div class="oh"><b>EU panel — as printed today</b><em id="euVer">spec v1</em></div>
+        <div class="eu" id="euPanel"></div>
+        <div class="allergen"><b>Contains:</b> <span id="euAll">Milk</span></div>
+      </div>
+
+      <div class="out" id="cardUS">
+        <div class="oh"><b>US panel — generated</b><em id="usVer">spec v1</em></div>
+        <div class="nf" id="usPanel"></div>
+        <div class="allergen"><b>Contains:</b> <span id="usAll">Milk</span></div>
+      </div>
+
+      <div class="out" id="cardShop">
+        <div class="oh"><b>Online shop listing</b><em id="shopVer">spec v1</em></div>
+        <p class="pname" id="shopName"></p>
+        <p class="price">$3.75 · single bar · subscribe &amp; save 15%</p>
+        <div class="badges" id="badges"></div>
+        <p class="blurb" id="blurb"></p>
+        <div class="aline" id="shopAll"></div>
+        <div class="src" id="shopSrc"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stage1">
+    <h3>Where this connects to stage one</h3>
+    <p>The Augmentir shift handover I rebuilt in stage one already has an allergen changeover check, and a rule that a Fail forces a note and a QA signature to appear. That rule and this label engine are the same idea at two scales: <b>paper can only ask; software can insist.</b></p>
+    <p>The missing link is that the handover's allergen check and this pack label are not yet reading the same object. Make Gensis the parent of both and the changeover check knows what the batch declares before the operator does — instead of asking a tired night-shift lead to remember.</p>
+  </div>
+
+  <div class="foot">
+    <p><b>The finding worth acting on.</b> Every panel on b-resilience.com is in EU format — kilojoules, per 100 g, Polyols, Salt. A bar sold from Jonesboro needs an FDA Nutrition Facts panel, and three of its mandatory fields are not captured anywhere in the current data: Added Sugars, Trans Fat, and the four micronutrients. The US label cannot be generated from what SANY holds today. That is a spec problem, not a design problem, and it is cheaper to fix before the shop exists than after.</p>
+    <p><b>Try this.</b> Tick <b>Shop copy maintained by hand</b>, then <b>Apply pending line extension</b>. Both panels declare pistachio and wheat. The shop keeps advertising nut free. That is a Class I recall, and the shop listing is part of the record.</p>
+    <p>Single HTML file, no dependencies. FDA rounding and %DV computed to 21 CFR 101.9. Not production code — the point is the data lineage.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  // Published values, per 100 g, read from b-resilience.com
+  var PRODUCTS = [
+    {id:"POWER", active:"Caffeine",  flavour:"Banana Strawberry Milk Crisp", col:"#F2C230",
+     kcal:360, fat:16.6, sat:13.2, carb:52.5, sug:10.8, pol:37.6, fib:4.3, pro:13.8, salt:0.28, all:["Milk"]},
+    {id:"SLEEP", active:"Melatonin", flavour:"Blueberry Coconut Milk Crisp", col:"#8E7CC3",
+     kcal:384, fat:20.7, sat:15.1, carb:47.1, sug:7.5,  pol:35.0, fib:4.3, pro:15.7, salt:0.33, all:["Milk","Coconut"]},
+    {id:"GLOW",  active:"Collagen",  flavour:"Toffee Sea Salt Milk Crisp",   col:"#34C7A4",
+     kcal:367, fat:17.4, sat:13.9, carb:45.6, sug:4.0,  pol:35.8, fib:3.3, pro:21.1, salt:0.70, all:["Milk"]},
+    {id:"FLORA", active:"D-Mannose", flavour:"Cranberry Cherry Milk Crisp",  col:"#E5186B",
+     kcal:356, fat:16.5, sat:13.1, carb:51.0, sug:7.4,  pol:37.4, fib:5.3, pro:13.8, salt:0.28, all:["Milk"]},
+    {id:"HEALTH",active:"Vitamin C", flavour:"Lemon Mango White Crisp",      col:"#F0851F",
+     kcal:353, fat:16.7, sat:12.9, carb:51.0, sug:8.8,  pol:40.6, fib:3.1, pro:14.6, salt:0.32, all:["Milk"]},
+    {id:"DUBAI", active:"Magnesium", flavour:"Pistachio Kadayif Milk Crisp", col:"#4BD25F",
+     kcal:401, fat:20.4, sat:12.1, carb:41.9, sug:3.9,  pol:34.2, fib:2.5, pro:25.8, salt:0.27, all:["Milk","Pistachio","Wheat"]}
+  ];
+  var DV = {fat:78, sat:20, carb:275, fib:28, pro:50, na:2300};
+  var SERV = 50;
+
+  var state = {idx:2, version:1, reform:false, detach:false, frozen:null};
+  var $ = function(id){ return document.getElementById(id); };
+
+  // FDA rounding, 21 CFR 101.9
+  function rCal(c){ return c<5?0:(c<=50?Math.round(c/5)*5:Math.round(c/10)*10); }
+  function rG(g){ return g<0.5?0:(g<=5?Math.round(g*2)/2:Math.round(g)); }
+  function rNa(mg){ return mg<5?0:(mg<=140?Math.round(mg/5)*5:Math.round(mg/10)*10); }
+  function dv(v,d){ return Math.round(v/d*100)+"%"; }
+  function n1(v){ return v.toFixed(1).replace(".",","); }
+  function n2(v){ return v.toFixed(2).replace(".",","); }
+
+  function current(){
+    var p = PRODUCTS[state.idx];
+    var o = {}; for (var k in p) o[k] = p[k];
+    o.all = p.all.slice();
+    if (state.reform){
+      o.fat += 2.1; o.pro += 1.4; o.sug -= 0.4; o.kcal += 18;
+      ["Pistachio","Wheat"].forEach(function(a){ if (o.all.indexOf(a) === -1) o.all.push(a); });
+      o.flavour = "Pistachio Kadayif " + o.flavour.split(" ").slice(-2).join(" ");
+    }
+    return o;
+  }
+  function nutty(list){
+    return list.indexOf("Pistachio") > -1 || list.indexOf("Coconut") > -1 || list.indexOf("Peanut") > -1;
+  }
+  function claims(p){
+    var half = p.pro/2, r = [];
+    var d = half/DV.pro;
+    if (d >= 0.20) r.push("Excellent source of protein");
+    else if (d >= 0.10) r.push("Good source of protein");
+    if (d >= 0.20) r.push("Supports high-protein GLP diets");
+    if (!nutty(p.all)) r.push("Nut free");
+    return r;
+  }
+
+  function renderPicks(){
+    var box = $("picks"); box.innerHTML = "";
+    PRODUCTS.forEach(function(p,i){
+      var b = document.createElement("button");
+      b.className = "pick" + (i === state.idx ? " on" : "");
+      b.innerHTML = '<span class="pn"><span class="sw" style="background:'+p.col+'"></span>'+p.id+'</span>'+
+                    '<span class="pa">'+p.active+'</span>';
+      b.onclick = function(){ state.idx = i; state.version++; render(); };
+      box.appendChild(b);
+    });
+  }
+
+  function render(){
+    var p = current(), h = {};
+    ["kcal","fat","sat","carb","sug","pol","fib","pro","salt"].forEach(function(k){ h[k] = p[k]/2; });
+    var naMg = h.salt/2.5*1000;
+
+    $("sku").textContent = "BR-" + p.id + "-50";
+    ["ver","verChip"].forEach(function(id){ $(id).textContent = "v" + state.version; });
+    $("euVer").textContent = "spec v" + state.version;
+    $("usVer").textContent = "spec v" + state.version;
+
+    // spec values
+    $("vals").innerHTML = [
+      ["Energy", Math.round(p.kcal) + " kcal"],
+      ["Fat", n1(p.fat) + " g"],
+      ["of which saturates", n1(p.sat) + " g"],
+      ["Carbohydrate", n1(p.carb) + " g"],
+      ["of which sugars", n1(p.sug) + " g"],
+      ["polyols", n1(p.pol) + " g"],
+      ["Fibre", n1(p.fib) + " g"],
+      ["Protein", n1(p.pro) + " g"],
+      ["Salt", n2(p.salt) + " g"],
+      ["Allergens", p.all.join(", ")]
+    ].map(function(r){ return "<div><span>"+r[0]+"</span><span>"+r[1]+"</span></div>"; }).join("");
+
+    $("gapNote").innerHTML = "<b>Not held in spec:</b> Added Sugars, Trans Fat, Vitamin D, Calcium, Iron, Potassium. " +
+                             "All six are mandatory on a US panel. Until Gensis captures them, no compliant US label can be generated.";
+
+    // EU panel, as printed
+    var euRows = [
+      ["Energy", Math.round(p.kcal*4.184) + " kJ<br>" + Math.round(p.kcal) + " kcal",
+                 Math.round(h.kcal*4.184) + " kJ<br>" + Math.round(h.kcal) + " kcal", true, false],
+      ["Fat", n1(p.fat)+" g", n1(h.fat)+" g", true, false],
+      ["- Saturated Fat", n1(p.sat)+" g", n1(h.sat)+" g", false, true],
+      ["Total Carbohydrates", n1(p.carb)+" g", n1(h.carb)+" g", false, false],
+      ["- Sugars", n1(p.sug)+" g", n1(h.sug)+" g", false, true],
+      ["- Polyols", n1(p.pol)+" g", n1(h.pol)+" g", false, true],
+      ["- Dietary Fiber", n1(p.fib)+" g", n1(h.fib)+" g", false, true],
+      ["Protein", n1(p.pro)+" g", n1(h.pro)+" g", true, false],
+      ["Salt", n2(p.salt)+" g", n2(h.salt)+" g", false, false]
+    ];
+    $("euPanel").innerHTML =
+      '<table><thead><tr style="background:'+p.col+'"><th>NUTRITIONAL INFORMATION</th><th>100g</th><th>50g</th></tr></thead><tbody>' +
+      euRows.map(function(r){
+        return '<tr class="'+(r[3]?"hi":"")+'"><td class="'+(r[4]?"ind":"")+'">'+r[0]+'</td><td>'+r[1]+'</td><td>'+r[2]+'</td></tr>';
+      }).join("") + '</tbody></table>';
+
+    // US panel, generated
+    $("usPanel").innerHTML =
+      '<div class="ttl">Nutrition Facts</div>' +
+      '<div class="sv"><span>1 serving per container</span></div>' +
+      '<div class="sv"><b>Serving size</b><b>1 bar (50g)</b></div>' +
+      '<div class="r7"></div><div style="font-size:10.5px;font-weight:700">Amount per serving</div>' +
+      '<div class="cal"><span>Calories</span><span>'+rCal(h.kcal)+'</span></div>' +
+      '<div class="r4"></div><div class="dvh">% Daily Value*</div><div class="r1"></div>' +
+      '<div class="row"><span><b>Total Fat</b> '+rG(h.fat)+'g</span><b>'+dv(h.fat,DV.fat)+'</b></div>' +
+      '<div class="row i"><span>Saturated Fat '+rG(h.sat)+'g</span><b>'+dv(h.sat,DV.sat)+'</b></div>' +
+      '<div class="row i miss"><span><i>Trans</i> Fat — not in spec</span><b>—</b></div>' +
+      '<div class="r1"></div>' +
+      '<div class="row"><span><b>Sodium</b> '+rNa(naMg)+'mg</span><b>'+dv(naMg,DV.na)+'</b></div>' +
+      '<div class="r1"></div>' +
+      '<div class="row"><span><b>Total Carbohydrate</b> '+rG(h.carb)+'g</span><b>'+dv(h.carb,DV.carb)+'</b></div>' +
+      '<div class="row i"><span>Dietary Fiber '+rG(h.fib)+'g</span><b>'+dv(h.fib,DV.fib)+'</b></div>' +
+      '<div class="row i"><span>Total Sugars '+rG(h.sug)+'g</span><b></b></div>' +
+      '<div class="row ii miss"><span>Incl. Added Sugars — not in spec</span><b>—</b></div>' +
+      '<div class="row i"><span>Sugar Alcohols '+rG(h.pol)+'g</span><b></b></div>' +
+      '<div class="r1"></div>' +
+      '<div class="row"><span><b>Protein</b> '+rG(h.pro)+'g</span><b>'+dv(h.pro,DV.pro)+'</b></div>' +
+      '<div class="r7"></div>' +
+      '<div class="row miss"><span>Vitamin D, Calcium, Iron, Potassium</span><b>not in spec</b></div>' +
+      '<div class="r1"></div>' +
+      '<div class="fn">Converted from the EU declaration: sodium derived from salt at 2.5, polyols relabelled as sugar alcohols, ' +
+      'values rounded and %DV computed to 21 CFR 101.9. Amber rows are mandatory fields the current spec does not hold.</div>';
+
+    $("euAll").textContent = p.all.join(", ");
+    $("usAll").textContent = p.all.join(", ");
+
+    // shop — live or frozen
+    var live = {all: p.all.slice(), claims: claims(p), version: state.version,
+                name: p.id + " " + p.active, flavour: p.flavour};
+    var shop = (state.detach && state.frozen) ? state.frozen : live;
+
+    $("shopName").textContent = "Beyond Resilience " + shop.name;
+    $("blurb").textContent = shop.flavour + ". Fuel your body, nourish your soul.";
+    $("shopAll").textContent = "Contains: " + shop.all.join(", ");
+    $("shopVer").textContent = "spec v" + shop.version;
+
+    var missing = [];
+    p.all.forEach(function(a){ if (shop.all.indexOf(a) === -1) missing.push(a); });
+    var falseNutFree = shop.claims.indexOf("Nut free") > -1 && nutty(p.all);
+    var mismatch = state.detach && (missing.length > 0 || falseNutFree);
+
+    var bb = $("badges"); bb.innerHTML = "";
+    shop.claims.forEach(function(c){
+      var el = document.createElement("span");
+      el.className = "badge" + (c === "Nut free" && falseNutFree ? " wrong" : "");
+      el.textContent = c; bb.appendChild(el);
+    });
+    var bl = document.createElement("span");
+    bl.className = "badge blocked";
+    bl.textContent = "No added sugar — cannot verify";
+    bb.appendChild(bl);
+
+    $("cardShop").className = "out" + (mismatch ? " detached" : "");
+    $("shopAll").className = "aline" + (mismatch ? " bad" : "");
+    $("shopVer").className = mismatch ? "stale" : "";
+    $("shopSrc").className = "src" + (mismatch ? " bad" : "");
+    $("shopSrc").textContent = state.detach
+      ? "hand-written · last touched at spec v" + shop.version + " · current spec is v" + state.version
+      : "generated from spec v" + state.version + " · 0 manual edits";
+
+    var box = $("status");
+    if (mismatch){
+      box.className = "status bad";
+      $("stTitle").textContent = "Label mismatch — the shop contradicts the pack";
+      $("stBody").textContent = (missing.length ? "The pack declares " + missing.join(" and ") + " and the shop does not. " : "") +
+        (falseNutFree ? "The listing still advertises nut free. " : "") +
+        "A customer buys on the shop copy and eats the bar. In the US that is a Class I recall, and the listing is part of the record.";
+    } else if (state.detach){
+      box.className = "status";
+      $("stTitle").textContent = "Shop copy is detached, but still happens to agree";
+      $("stBody").textContent = "Nothing is wrong yet — which is the problem. It stays fine until the day the formula changes and nobody edits the website. Apply the line extension.";
+    } else {
+      box.className = "status";
+      $("stTitle").textContent = "Thread intact — three renderings on spec v" + state.version;
+      $("stBody").textContent = "EU panel, US panel and shop listing all descend from the same object. The label cannot drift, because nobody is allowed to type it.";
+    }
+  }
+
+  $("reform").addEventListener("change", function(e){ state.reform = e.target.checked; state.version++; render(); });
+  $("detach").addEventListener("change", function(e){
+    state.detach = e.target.checked;
+    if (state.detach){
+      var p = current();
+      state.frozen = {all:p.all.slice(), claims:claims(p), version:state.version, name:p.id+" "+p.active, flavour:p.flavour};
+    } else { state.frozen = null; }
+    render();
+  });
+
+  renderPicks(); render();
+})();
+</script>
+</body>
+</html>
